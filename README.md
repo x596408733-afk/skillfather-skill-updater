@@ -1,2 +1,76 @@
-# skillfather-skill-updater
-SkillFather is an update manager for Codex Skills. With user permission, it scans installed skills, finds and verifies their GitHub repositories, compares local and latest versions, syncs upstream changes to the correct local files, prioritizes smaller updates, and generates a clear update report.
+# SkillFather | Skill Updater
+
+SkillFather safely updates locally customized Codex or Claude `SKILL.md` files from GitHub. It pins upstream content to a commit, uses three-way comparison, requires a dry run and confirmation, protects local edits, records conflicts, and creates reversible backups.
+
+## Safety model
+
+- GitHub content is untrusted comparison data, not executable instruction.
+- A registration snapshot is not accepted as base when local content differs.
+- Every candidate is pinned by commit SHA and SHA-256.
+- Local files are never rewritten wholesale.
+- Conflicts prevent base advancement.
+- Candidate and final local hashes require a recorded two-phase approval before base advancement.
+- Restore creates a pre-restore backup.
+- Registered local path, GitHub URL, and ref cannot be silently retargeted.
+
+## Install
+
+Clone the repository into the personal Skills directory.
+
+Codex on Windows:
+
+```powershell
+git clone https://github.com/x596408733-afk/skillfather-skill-updater.git "$env:USERPROFILE\.codex\skills\skillfather-skill-updater"
+```
+
+Codex on macOS/Linux:
+
+```bash
+git clone https://github.com/x596408733-afk/skillfather-skill-updater.git ~/.codex/skills/skillfather-skill-updater
+```
+
+Claude Code on macOS/Linux:
+
+```bash
+git clone https://github.com/x596408733-afk/skillfather-skill-updater.git ~/.claude/skills/skillfather-skill-updater
+```
+
+Restart or reload the agent after installation. Python 3.8+ and Git are required; the state helper uses only the Python standard library.
+
+## Use
+
+Invoke the Skill naturally or with its command family:
+
+```text
+Use $skillfather-skill-updater to register my local Skills.
+/skill-update register <local-skill-path> <github-blob-url>
+/skill-update list
+/skill-update check all
+/skill-update diff <name>
+/skill-update merge <name>
+/skill-update resolve <conflict-id>
+/skill-update backup <name>
+/skill-update restore <name> <backup-path>
+```
+
+The Skill manages one `SKILL.md` per registry entry. It does not currently synchronize a Skill's supporting directories.
+
+## Test
+
+```bash
+python -X utf8 -m unittest discover -s tests -v
+```
+
+The tests cover legacy registry migration, first registration, immutable candidates, conflict-gated finalization, backups, restore, GitHub URL pinning, and package metadata.
+
+## Repository layout
+
+```text
+SKILL.md                         Agent workflow
+agents/openai.yaml               Codex UI metadata
+scripts/skill_update_state.py    Deterministic state helper
+references/protocol.md           Registry and merge protocol
+tests/                           Standard-library test suite
+```
+
+Licensed under the MIT License.
