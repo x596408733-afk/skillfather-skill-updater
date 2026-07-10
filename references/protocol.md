@@ -162,3 +162,7 @@ Report in the user's language:
 - every backup path;
 - unresolved conflicts and the next valid command;
 - failures and preserved state.
+
+## Skill inventory
+
+After every `/skill-update` workflow, append a complete inventory of discoverable local `SKILL.md` files from the active Skill roots. Match each file's resolved absolute path to `local_path` in the registry, not only by name. For every local Skill, show its name and registered GitHub `SKILL.md` URL. An unregistered Skill, or one without a registered URL, must be shown with `无`. Do not guess, web-search, or infer a URL for any unregistered Skill.

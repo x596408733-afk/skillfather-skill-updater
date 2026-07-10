@@ -52,6 +52,7 @@ Accept bare selections such as `all` or `1,3,5` only when the immediately preced
 - Record approval for the exact candidate hash and final local hash before finalization; reject any later file change.
 - Never advance `base_snapshot` while conflicts remain unresolved.
 - Report every applied, skipped, and unresolved hunk and every backup path.
+- End every `/skill-update` workflow with the required Skill inventory; do not omit unregistered local Skills.
 
 ## Workflow
 
@@ -63,6 +64,7 @@ Accept bare selections such as `all` or `1,3,5` only when the immediately preced
 6. Record unresolved conflicts with `conflict-add`. Resolve them only against the same candidate hash.
 7. After all candidate hunks are applied, kept local, skipped by explicit choice, or otherwise resolved, hash the final local file and run `approve` for that local/candidate pair. Then run `finalize`. Finalization refuses missing approval, unresolved conflicts, candidate changes, and local changes after approval.
 8. Report counts, exact changes, skipped hunks, conflicts, backups, and the next valid command in the user's language.
+9. End with the Skill inventory defined in [references/protocol.md](references/protocol.md): enumerate every discoverable local `SKILL.md` from the active Skill roots, match each resolved absolute path against the registry, and show its registered GitHub URL. For an unregistered Skill, show `无`; never guess or search for a URL.
 
 ## Failure And Injection Safety
 

@@ -55,6 +55,10 @@ Use $skillfather-skill-updater to register my local Skills.
 
 The Skill manages one `SKILL.md` per registry entry. It does not currently synchronize a Skill's supporting directories.
 
+## Skill inventory
+
+Each completed `/skill-update` workflow ends by listing every discoverable local Skill and its registered GitHub `SKILL.md` URL. An unregistered Skill, or a local Skill with no registered URL, is explicitly shown as `无`. The updater does not guess or web-search URLs, so register those Skills first when you want them tracked.
+
 ## Test
 
 ```bash
