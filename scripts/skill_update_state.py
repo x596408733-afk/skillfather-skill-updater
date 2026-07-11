@@ -262,7 +262,9 @@ def stage_candidate(
     local_hash = sha256_file(local_path)
     candidate_hash = sha256_file(candidate_path)
     candidate_version = (
-        latest_version or extract_skill_version(candidate_path) or commit_sha.lower()[:12]
+        latest_version
+        if latest_version is not None
+        else extract_skill_version(candidate_path) or commit_sha.lower()[:12]
     )
     candidate_snapshot = _snapshot_path(registry_path, name, "candidate", candidate_hash)
     atomic_copy(candidate_path, candidate_snapshot)
