@@ -98,12 +98,18 @@ def extract_skill_version(path):
     for line in lines[1:]:
         if line.strip() == "---":
             return None
-        match = re.fullmatch(
-            r"version:\s*(?:\"([^\"]+)\"|'([^']+)'|([^#]+?))\s*(?:#.*)?",
-            line,
-        )
-        if match:
-            return next(value.strip() for value in match.groups() if value is not None)
+        match = re.fullmatch(r"version:\s*(.*)", line)
+        if not match:
+            continue
+        scalar = match.group(1)
+        if scalar.startswith('"'):
+            quoted = re.fullmatch(r'"([^\"]+)"(?:[ \t]+#.*)?[ \t]*', scalar)
+            return quoted.group(1) if quoted else None
+        if scalar.startswith("'"):
+            quoted = re.fullmatch(r"'([^']+)'(?:[ \t]+#.*)?[ \t]*", scalar)
+            return quoted.group(1) if quoted else None
+        value = re.sub(r"[ \t]+#.*$", "", scalar).strip()
+        return value or None
     return None
 
 
@@ -122,10 +128,14 @@ In `stage_candidate`, derive candidate display metadata from the pinned candidat
 ```python
 candidate_version = (
     latest_version
-    or extract_skill_version(candidate_path)
-    or commit_sha.lower()[:12]
+    if latest_version is not None and latest_version.strip()
+    else extract_skill_version(candidate_path) or commit_sha.lower()[:12]
 )
 ```
+
+Blank explicit versions are treated as absent. The minimal parser preserves `#` unless
+preceded by whitespace and deliberately rejects quoted scalars containing escaped quote
+syntax rather than partially parsing them.
 
 Store `candidate_version` as `latest_version`. For a new entry, initialize `local_version` with `display_version(local_path)`. In `finalize_candidate`, after rechecking the approved local hash, set:
 

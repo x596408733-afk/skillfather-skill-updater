@@ -60,12 +60,18 @@ def extract_skill_version(path):
     for line in lines[1:]:
         if line.strip() == "---":
             return None
-        match = re.fullmatch(
-            r"version:\s*(?:\"([^\"]+)\"|'([^']+)'|([^#]+?))\s*(?:#.*)?",
-            line,
-        )
-        if match:
-            return next(value.strip() for value in match.groups() if value is not None)
+        match = re.fullmatch(r"version:\s*(.*)", line)
+        if not match:
+            continue
+        scalar = match.group(1)
+        if scalar.startswith('"'):
+            quoted = re.fullmatch(r'"([^\"]+)"(?:[ \t]+#.*)?[ \t]*', scalar)
+            return quoted.group(1) if quoted else None
+        if scalar.startswith("'"):
+            quoted = re.fullmatch(r"'([^']+)'(?:[ \t]+#.*)?[ \t]*", scalar)
+            return quoted.group(1) if quoted else None
+        value = re.sub(r"[ \t]+#.*$", "", scalar).strip()
+        return value or None
     return None
 
 
@@ -263,7 +269,7 @@ def stage_candidate(
     candidate_hash = sha256_file(candidate_path)
     candidate_version = (
         latest_version
-        if latest_version is not None
+        if latest_version is not None and latest_version.strip()
         else extract_skill_version(candidate_path) or commit_sha.lower()[:12]
     )
     candidate_snapshot = _snapshot_path(registry_path, name, "candidate", candidate_hash)

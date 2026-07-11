@@ -286,6 +286,30 @@ class SkillUpdateStateTests(unittest.TestCase):
         )
         self.assertIsNone(state.extract_skill_version(self.local))
 
+    def test_extract_skill_version_preserves_hash_in_unquoted_scalar(self):
+        self.local.write_text(
+            "---\nname: demo-skill\nversion: 1.2#beta\n---\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual("1.2#beta", state.extract_skill_version(self.local))
+
+    def test_extract_skill_version_preserves_hash_in_quoted_scalar(self):
+        self.local.write_text(
+            '---\nname: demo-skill\nversion: "1.2#beta"\n---\n',
+            encoding="utf-8",
+        )
+
+        self.assertEqual("1.2#beta", state.extract_skill_version(self.local))
+
+    def test_extract_skill_version_rejects_unsupported_escaped_quote(self):
+        self.local.write_text(
+            '---\nname: demo-skill\nversion: "1.2\\"beta"\n---\n',
+            encoding="utf-8",
+        )
+
+        self.assertIsNone(state.extract_skill_version(self.local))
+
     def test_display_version_falls_back_to_hash(self):
         self.local.write_text("no frontmatter version\n", encoding="utf-8")
         expected = state.sha256_file(self.local).split(":", 1)[1][:12]
@@ -369,7 +393,7 @@ class SkillUpdateStateTests(unittest.TestCase):
 
         self.assertEqual("1.0", entry["local_version"])
 
-    def test_stage_explicit_empty_latest_version_takes_precedence(self):
+    def test_stage_empty_latest_version_falls_back_to_candidate_version(self):
         self.local.write_text("local\n", encoding="utf-8")
         self.candidate.write_text(
             "---\nname: demo-skill\nversion: 2.0\n---\n",
@@ -387,7 +411,27 @@ class SkillUpdateStateTests(unittest.TestCase):
             latest_version="",
         )
 
-        self.assertEqual("", entry["latest_version"])
+        self.assertEqual("2.0", entry["latest_version"])
+
+    def test_stage_whitespace_latest_version_falls_back_to_candidate_version(self):
+        self.local.write_text("local\n", encoding="utf-8")
+        self.candidate.write_text(
+            "---\nname: demo-skill\nversion: 2.0\n---\n",
+            encoding="utf-8",
+        )
+
+        entry = state.stage_candidate(
+            self.registry,
+            "demo-skill",
+            self.local,
+            "https://github.com/example/demo/blob/main/SKILL.md",
+            "main",
+            self.candidate,
+            "a" * 40,
+            latest_version="  \t",
+        )
+
+        self.assertEqual("2.0", entry["latest_version"])
 
     def test_stage_explicit_latest_version_takes_precedence(self):
         self.local.write_text("local\n", encoding="utf-8")
