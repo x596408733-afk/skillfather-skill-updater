@@ -98,10 +98,13 @@ def extract_skill_version(path):
     for line in lines[1:]:
         if line.strip() == "---":
             return None
-        match = re.fullmatch(r"version:\s*(.*)", line)
+        match = re.fullmatch(r"version:(.*)", line)
         if not match:
             continue
         scalar = match.group(1)
+        if re.fullmatch(r"[ \t]+#.*", scalar):
+            return None
+        scalar = scalar.lstrip()
         if scalar.startswith('"'):
             quoted = re.fullmatch(r'"([^\"]+)"(?:[ \t]+#.*)?[ \t]*', scalar)
             return quoted.group(1) if quoted else None

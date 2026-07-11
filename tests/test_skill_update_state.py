@@ -294,6 +294,16 @@ class SkillUpdateStateTests(unittest.TestCase):
 
         self.assertEqual("1.2#beta", state.extract_skill_version(self.local))
 
+    def test_extract_skill_version_ignores_comment_only_scalar(self):
+        for version_line in ("version: # unavailable", "version:    # unavailable"):
+            with self.subTest(version_line=version_line):
+                self.local.write_text(
+                    f"---\nname: demo-skill\n{version_line}\n---\n",
+                    encoding="utf-8",
+                )
+
+                self.assertIsNone(state.extract_skill_version(self.local))
+
     def test_extract_skill_version_preserves_hash_in_quoted_scalar(self):
         self.local.write_text(
             '---\nname: demo-skill\nversion: "1.2#beta"\n---\n',
