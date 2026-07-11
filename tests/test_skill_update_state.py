@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import skill_update_state as state
 
@@ -31,6 +32,33 @@ class SkillUpdateStateTests(unittest.TestCase):
             candidate_path=self.candidate,
             commit_sha="a" * 40,
             latest_version="v2",
+        )
+
+    def prepare_fast_update(self):
+        self.local.write_text(
+            "---\nname: demo-skill\nversion: 1\n---\n", encoding="utf-8"
+        )
+        self.candidate.write_bytes(self.local.read_bytes())
+        state.stage_candidate(
+            self.registry,
+            "demo-skill",
+            self.local,
+            "https://github.com/example/demo/blob/main/SKILL.md",
+            "main",
+            self.candidate,
+            "a" * 40,
+        )
+        self.candidate.write_text(
+            "---\nname: demo-skill\nversion: 2\n---\n", encoding="utf-8"
+        )
+        return state.stage_candidate(
+            self.registry,
+            "demo-skill",
+            self.local,
+            "https://github.com/example/demo/blob/main/SKILL.md",
+            "main",
+            self.candidate,
+            "b" * 40,
         )
 
     def test_legacy_registry_migrates_without_losing_entries(self):
@@ -630,6 +658,127 @@ class SkillUpdateStateTests(unittest.TestCase):
         entries = state.list_entries(self.registry)
 
         self.assertEqual(["demo-skill"], [entry["name"] for entry in entries])
+
+    def test_fast_apply_backs_up_and_finalizes_unchanged_local(self):
+        entry = self.prepare_fast_update()
+
+        eligibility = state.fast_eligibility(self.registry, "demo-skill")
+        result = state.fast_apply(
+            self.registry, "demo-skill", entry["candidate_hash"]
+        )
+
+        self.assertTrue(eligibility["eligible"])
+        self.assertEqual(self.candidate.read_bytes(), self.local.read_bytes())
+        self.assertEqual("1", Path(result["backup_path"]).read_text(encoding="utf-8").split("version: ", 1)[1].splitlines()[0])
+        self.assertEqual("no_update", result["entry"]["status"])
+        self.assertEqual("2", result["entry"]["local_version"])
+
+    def test_fast_eligibility_routes_local_customization_to_review(self):
+        self.prepare_fast_update()
+        self.local.write_text("customized\n", encoding="utf-8")
+
+        result = state.fast_eligibility(self.registry, "demo-skill")
+
+        self.assertFalse(result["eligible"])
+        self.assertEqual("local_differs_from_base", result["reason"])
+
+    def test_fast_apply_rejects_mutated_candidate_snapshot(self):
+        entry = self.prepare_fast_update()
+        snapshot = self.registry.parent / entry["candidate_snapshot"]
+        snapshot.write_text("tampered\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "candidate snapshot hash mismatch"):
+            state.fast_apply(self.registry, "demo-skill", entry["candidate_hash"])
+
+    def test_inventory_reports_all_types_and_required_fields(self):
+        codex_home = self.root / ".codex"
+        personal = codex_home / "skills" / "demo-skill" / "SKILL.md"
+        system = codex_home / "skills" / ".system" / "builtin" / "SKILL.md"
+        plugin = self.root / "plugin" / "skills" / "tool" / "SKILL.md"
+        for path, name, version in (
+            (personal, "demo-skill", "1"),
+            (system, "builtin", "2"),
+            (plugin, "tool", "3"),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                f"---\nname: {name}\nversion: {version}\n---\n",
+                encoding="utf-8",
+            )
+        self.local = personal
+        self.candidate.write_bytes(personal.read_bytes())
+        state.stage_candidate(
+            self.registry,
+            "demo-skill",
+            personal,
+            "https://github.com/example/demo/blob/main/SKILL.md",
+            "main",
+            self.candidate,
+            "a" * 40,
+        )
+
+        rows = state.build_inventory(
+            self.registry, codex_home, plugin_skills=[plugin]
+        )
+        by_name = {row["name"]: row for row in rows}
+
+        self.assertEqual(
+            {
+                "name",
+                "type",
+                "github_url",
+                "current_version",
+                "latest_version",
+                "update_eligibility",
+                "local_path",
+            },
+            set(by_name["demo-skill"]),
+        )
+        self.assertEqual("personal", by_name["demo-skill"]["type"])
+        self.assertEqual("no", by_name["demo-skill"]["update_eligibility"])
+        self.assertEqual("system", by_name["builtin"]["type"])
+        self.assertEqual("managed_by_codex", by_name["builtin"]["update_eligibility"])
+        self.assertEqual("plugin", by_name["tool"]["type"])
+
+    def test_inventory_matches_registry_by_exact_path(self):
+        codex_home = self.root / ".codex"
+        registered = codex_home / "skills" / "registered" / "SKILL.md"
+        duplicate = codex_home / "skills" / "duplicate" / "SKILL.md"
+        for path in (registered, duplicate):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("---\nname: demo-skill\n---\n", encoding="utf-8")
+        self.local = registered
+        self.candidate.write_bytes(registered.read_bytes())
+        self.stage()
+
+        rows = [
+            row
+            for row in state.build_inventory(self.registry, codex_home)
+            if row["name"] == "demo-skill"
+        ]
+        by_path = {row["local_path"]: row for row in rows}
+
+        self.assertEqual(2, len(rows))
+        self.assertIsNotNone(by_path[str(registered.resolve())]["github_url"])
+        self.assertIsNone(by_path[str(duplicate.resolve())]["github_url"])
+
+    def test_infer_github_blob_url_uses_verified_https_remote(self):
+        skill = self.root / "repo" / "skills" / "demo" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\nname: demo\n---\n", encoding="utf-8")
+        outputs = [
+            str(self.root / "repo"),
+            "https://github.com/example/repository.git",
+            "origin/main",
+        ]
+
+        with mock.patch.object(state, "_git_output", side_effect=outputs):
+            result = state.infer_github_blob_url(skill)
+
+        self.assertEqual(
+            "https://github.com/example/repository/blob/main/skills/demo/SKILL.md",
+            result,
+        )
 
     def test_build_pinned_raw_url_rejects_untrusted_hosts(self):
         with self.assertRaisesRegex(ValueError, "github.com"):

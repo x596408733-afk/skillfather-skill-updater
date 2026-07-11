@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -505,6 +506,224 @@ def list_entries(registry_path):
     return [dict(entry) for entry in sorted(data["skills"], key=lambda item: item["name"])]
 
 
+def fast_eligibility(registry_path, name):
+    data, _ = load_registry(registry_path)
+    entry = _find_entry(data, name)
+    unresolved = any(
+        item.get("status", "unresolved") == "unresolved"
+        for item in entry.get("pending_conflicts", [])
+    )
+    checks = (
+        (entry.get("first_diff_required", True), "first_review_required"),
+        (unresolved, "unresolved_conflicts"),
+        (not entry.get("base_hash"), "missing_base"),
+        (not entry.get("candidate_snapshot"), "missing_candidate"),
+    )
+    for failed, reason in checks:
+        if failed:
+            return {"eligible": False, "reason": reason, "name": name}
+
+    local_hash = sha256_file(entry["local_path"])
+    if local_hash != entry["base_hash"]:
+        return {
+            "eligible": False,
+            "reason": "local_differs_from_base",
+            "name": name,
+        }
+    if entry.get("candidate_hash") == entry.get("base_hash"):
+        return {"eligible": False, "reason": "no_update", "name": name}
+    return {
+        "eligible": True,
+        "reason": "eligible",
+        "name": name,
+        "candidate_hash": entry["candidate_hash"],
+        "local_hash": local_hash,
+    }
+
+
+def fast_apply(registry_path, name, candidate_hash):
+    data, _ = load_registry(registry_path)
+    entry = _find_entry(data, name)
+    candidate_hash = normalize_hash(candidate_hash)
+    if candidate_hash != entry.get("candidate_hash"):
+        raise ValueError("candidate hash changed; run check again")
+
+    eligibility = fast_eligibility(registry_path, name)
+    if not eligibility["eligible"]:
+        raise ValueError(f"fast update not eligible: {eligibility['reason']}")
+
+    candidate_snapshot = Path(registry_path).parent / entry["candidate_snapshot"]
+    if sha256_file(candidate_snapshot) != candidate_hash:
+        raise ValueError("candidate snapshot hash mismatch")
+    backup_path = create_backup(registry_path, name)
+    if sha256_file(entry["local_path"]) != eligibility["local_hash"]:
+        raise ValueError("local file changed after fast eligibility check")
+
+    atomic_copy(candidate_snapshot, entry["local_path"])
+    final_local_hash = sha256_file(entry["local_path"])
+    approve_candidate(registry_path, name, candidate_hash, final_local_hash)
+    finalized = finalize_candidate(registry_path, name, candidate_hash)
+    return {"backup_path": str(backup_path), "entry": finalized}
+
+
+def skill_name(path):
+    lines = Path(path).read_text(encoding="utf-8-sig").splitlines()
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            match = re.fullmatch(
+                r"name:\s*(?:\"([^\"]+)\"|'([^']+)'|([^#]+?))\s*(?:#.*)?",
+                line,
+            )
+            if match:
+                return next(
+                    value.strip() for value in match.groups() if value is not None
+                )
+    return Path(path).parent.name
+
+
+def discover_skill_files(codex_home, plugin_skills=()):
+    codex_home = Path(codex_home).resolve()
+    skill_root = codex_home / "skills"
+    candidates = list(skill_root.glob("*/SKILL.md"))
+    candidates.extend((skill_root / ".system").glob("*/SKILL.md"))
+    candidates.extend(Path(path) for path in plugin_skills)
+    if not plugin_skills:
+        plugin_cache = codex_home / "plugins" / "cache"
+        if plugin_cache.is_dir():
+            candidates.extend(plugin_cache.rglob("SKILL.md"))
+
+    found = {}
+    for path in candidates:
+        if path.is_file():
+            resolved = path.resolve()
+            found[os.path.normcase(str(resolved))] = resolved
+    return [found[key] for key in sorted(found)]
+
+
+def skill_type(path, codex_home, plugin_skills=()):
+    path = Path(path).resolve()
+    codex_home = Path(codex_home).resolve()
+    normalized_plugins = {
+        os.path.normcase(str(Path(item).resolve())) for item in plugin_skills
+    }
+    if os.path.normcase(str(path)) in normalized_plugins:
+        return "plugin"
+    for root, kind in (
+        (codex_home / "skills" / ".system", "system"),
+        (codex_home / "plugins" / "cache", "plugin"),
+    ):
+        try:
+            path.relative_to(root)
+            return kind
+        except ValueError:
+            pass
+    return "personal"
+
+
+def _git_output(directory, *arguments):
+    completed = subprocess.run(
+        ["git", "-C", str(directory), *arguments],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+    )
+    return completed.stdout.strip()
+
+
+def infer_github_blob_url(skill_path):
+    skill_path = Path(skill_path).resolve()
+    try:
+        root = Path(
+            _git_output(skill_path.parent, "rev-parse", "--show-toplevel")
+        ).resolve()
+        remote = _git_output(root, "config", "--get", "remote.origin.url")
+        match = re.fullmatch(
+            r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?", remote
+        )
+        if not match:
+            return None
+        try:
+            branch = _git_output(
+                root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"
+            )
+            branch = branch[7:] if branch.startswith("origin/") else branch
+        except (OSError, subprocess.CalledProcessError):
+            branch = _git_output(root, "rev-parse", "--abbrev-ref", "HEAD")
+        relative = skill_path.relative_to(root).as_posix()
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return None
+    owner, repository = match.groups()
+    return (
+        f"https://github.com/{owner}/{repository}/blob/"
+        f"{quote(branch, safe='')}/{quote(relative, safe='/')}"
+    )
+
+
+def build_inventory(registry_path, codex_home, plugin_skills=()):
+    data, _ = load_registry(registry_path)
+    entries = {
+        os.path.normcase(str(Path(entry["local_path"]).resolve())): entry
+        for entry in data["skills"]
+        if entry.get("local_path")
+    }
+    type_order = {"personal": 0, "system": 1, "plugin": 2}
+    rows = []
+    for local_path in discover_skill_files(codex_home, plugin_skills):
+        kind = skill_type(local_path, codex_home, plugin_skills)
+        entry = entries.get(os.path.normcase(str(local_path)))
+        github_url = (
+            entry.get("upstream_url") if entry else infer_github_blob_url(local_path)
+        )
+        current_version = display_version(
+            local_path,
+            accepted_commit=entry.get("candidate_commit_sha") if entry else None,
+            accepted_hash=entry.get("base_hash") if entry else None,
+        )
+        latest_version = entry.get("latest_version") if entry else None
+
+        if entry is None:
+            eligibility = (
+                "managed_by_codex" if kind in {"system", "plugin"} else "cannot_check"
+            )
+        elif entry.get("status") == "check_failed":
+            eligibility = "check_failed"
+        elif entry.get("status") in {"review_required", "conflict"}:
+            eligibility = "review_required"
+        elif entry.get("status") == "update_available":
+            eligibility = (
+                "yes" if fast_eligibility(registry_path, entry["name"])["eligible"]
+                else "review_required"
+            )
+        elif entry.get("status") == "no_update":
+            eligibility = "no"
+        else:
+            eligibility = "cannot_check"
+
+        rows.append(
+            {
+                "name": skill_name(local_path),
+                "type": kind,
+                "github_url": github_url,
+                "current_version": current_version,
+                "latest_version": latest_version,
+                "update_eligibility": eligibility,
+                "local_path": str(local_path),
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            type_order[row["type"]],
+            row["name"].casefold(),
+            os.path.normcase(row["local_path"]),
+        ),
+    )
+
+
 def migrate_registry(registry_path):
     registry_path = Path(registry_path)
     data, changed = load_registry(registry_path)
@@ -552,6 +771,20 @@ def _build_parser():
 
     list_parser = commands.add_parser("list")
     list_parser.add_argument("--registry", required=True)
+
+    inventory = commands.add_parser("inventory")
+    inventory.add_argument("--registry", required=True)
+    inventory.add_argument("--codex-home", required=True)
+    inventory.add_argument("--plugin-skill", action="append", default=[])
+
+    fast_check = commands.add_parser("fast-eligibility")
+    fast_check.add_argument("--registry", required=True)
+    fast_check.add_argument("--name", required=True)
+
+    fast_update = commands.add_parser("fast-apply")
+    fast_update.add_argument("--registry", required=True)
+    fast_update.add_argument("--name", required=True)
+    fast_update.add_argument("--candidate-hash", required=True)
 
     stage = commands.add_parser("stage")
     stage.add_argument("--registry", required=True)
@@ -624,6 +857,17 @@ def main(argv=None):
             print(json.dumps({"schema_version": SCHEMA_VERSION, "backup": str(backup) if backup else None}))
         elif args.command == "list":
             print(json.dumps(list_entries(args.registry), ensure_ascii=False, indent=2))
+        elif args.command == "inventory":
+            rows = build_inventory(args.registry, args.codex_home, args.plugin_skill)
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+        elif args.command == "fast-eligibility":
+            result = fast_eligibility(args.registry, args.name)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.command == "fast-apply":
+            result = fast_apply(
+                args.registry, args.name, args.candidate_hash
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
         elif args.command == "stage":
             entry = stage_candidate(
                 args.registry,
