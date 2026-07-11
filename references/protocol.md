@@ -23,6 +23,7 @@ Each entry uses these fields:
   "upstream_ref": "main",
   "base_snapshot": "skill-update-snapshots/example-skill/base-0123456789ab.md",
   "base_hash": "sha256:...",
+  "base_commit_sha": "accepted-40-character-git-sha",
   "candidate_snapshot": "skill-update-snapshots/example-skill/candidate-abcdef012345.md",
   "candidate_hash": "sha256:...",
   "candidate_commit_sha": "40-character-git-sha",
@@ -51,6 +52,7 @@ python -X utf8 "$STATE" validate --registry "$REGISTRY"
 python -X utf8 "$STATE" migrate --registry "$REGISTRY"
 python -X utf8 "$STATE" list --registry "$REGISTRY"
 python -X utf8 "$STATE" hash <file>
+python -X utf8 "$STATE" extract-version <SKILL.md>
 python -X utf8 "$STATE" inventory --registry "$REGISTRY" --codex-home <home> [--plugin-skill <SKILL.md> ...]
 python -X utf8 "$STATE" fast-eligibility --registry "$REGISTRY" --name <name>
 python -X utf8 "$STATE" fast-apply --registry "$REGISTRY" --name <name> --candidate-hash <sha256:...>

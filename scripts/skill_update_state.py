@@ -97,6 +97,7 @@ def _migrate_entry(source, force_first_review=False):
     entry = dict(source)
     entry["status"] = STATUS_MAP.get(entry.get("status"), entry.get("status", "unregistered"))
     entry["base_hash"] = normalize_hash(entry.get("base_hash"))
+    entry.setdefault("base_commit_sha", None)
     latest_hash = normalize_hash(entry.pop("latest_hash", None))
     entry["candidate_hash"] = normalize_hash(entry.get("candidate_hash")) or latest_hash
     entry.setdefault("candidate_snapshot", None)
@@ -291,11 +292,13 @@ def stage_candidate(
             atomic_copy(candidate_path, base_snapshot)
             entry["base_snapshot"] = _relative_to_registry(registry_path, base_snapshot)
             entry["base_hash"] = candidate_hash
+            entry["base_commit_sha"] = commit_sha.lower()
             entry["first_diff_required"] = False
             status = "no_update"
         else:
             entry["base_snapshot"] = None
             entry["base_hash"] = None
+            entry["base_commit_sha"] = None
             entry["first_diff_required"] = True
             status = "review_required"
     else:
@@ -441,6 +444,7 @@ def finalize_candidate(registry_path, name, candidate_hash):
     atomic_copy(candidate_snapshot, base_snapshot)
     entry["base_snapshot"] = _relative_to_registry(registry_path, base_snapshot)
     entry["base_hash"] = candidate_hash
+    entry["base_commit_sha"] = entry.get("candidate_commit_sha")
     entry["first_diff_required"] = False
     entry["pending_conflicts"] = []
     entry["status"] = "no_update"
@@ -523,6 +527,16 @@ def fast_eligibility(registry_path, name):
         if failed:
             return {"eligible": False, "reason": reason, "name": name}
 
+    candidate_snapshot = Path(registry_path).parent / entry["candidate_snapshot"]
+    if not candidate_snapshot.is_file():
+        return {"eligible": False, "reason": "missing_candidate", "name": name}
+    if sha256_file(candidate_snapshot) != entry.get("candidate_hash"):
+        return {
+            "eligible": False,
+            "reason": "candidate_snapshot_hash_mismatch",
+            "name": name,
+        }
+
     local_hash = sha256_file(entry["local_path"])
     if local_hash != entry["base_hash"]:
         return {
@@ -550,7 +564,8 @@ def fast_apply(registry_path, name, candidate_hash):
 
     eligibility = fast_eligibility(registry_path, name)
     if not eligibility["eligible"]:
-        raise ValueError(f"fast update not eligible: {eligibility['reason']}")
+        reason = eligibility["reason"].replace("_", " ")
+        raise ValueError(f"fast update not eligible: {reason}")
 
     candidate_snapshot = Path(registry_path).parent / entry["candidate_snapshot"]
     if sha256_file(candidate_snapshot) != candidate_hash:
@@ -680,7 +695,7 @@ def build_inventory(registry_path, codex_home, plugin_skills=()):
         )
         current_version = display_version(
             local_path,
-            accepted_commit=entry.get("candidate_commit_sha") if entry else None,
+            accepted_commit=entry.get("base_commit_sha") if entry else None,
             accepted_hash=entry.get("base_hash") if entry else None,
         )
         latest_version = entry.get("latest_version") if entry else None
@@ -699,7 +714,11 @@ def build_inventory(registry_path, codex_home, plugin_skills=()):
                 else "review_required"
             )
         elif entry.get("status") == "no_update":
-            eligibility = "no"
+            eligibility = (
+                "no"
+                if sha256_file(local_path) == entry.get("base_hash")
+                else "review_required"
+            )
         else:
             eligibility = "cannot_check"
 
@@ -764,6 +783,9 @@ def _build_parser():
 
     hash_parser = commands.add_parser("hash")
     hash_parser.add_argument("file")
+
+    version_parser = commands.add_parser("extract-version")
+    version_parser.add_argument("file")
 
     for command in ("validate", "migrate"):
         command_parser = commands.add_parser(command)
@@ -848,6 +870,8 @@ def main(argv=None):
     try:
         if args.command == "hash":
             print(sha256_file(args.file))
+        elif args.command == "extract-version":
+            print(extract_skill_version(args.file) or "")
         elif args.command == "validate":
             data, changed = load_registry(args.registry)
             validate_registry(data)

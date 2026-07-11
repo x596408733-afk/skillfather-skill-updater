@@ -34,7 +34,7 @@ The Skill and protocol require repository/ref grouping, one ref resolution per g
 
 ## Verification
 
-- State and package suite: 51 tests passed, no skips.
+- State and package suite: 55 tests passed, no skips.
 - Disposable real-registry inventory: 88 complete rows.
 - `patent-disclosure-skill`: current `1.8.9`, latest `1.8.9`, eligibility `no`.
 - Real registry mutation: none; SHA-256 unchanged.

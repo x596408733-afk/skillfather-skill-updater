@@ -1,6 +1,8 @@
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -690,6 +692,16 @@ class SkillUpdateStateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "candidate snapshot hash mismatch"):
             state.fast_apply(self.registry, "demo-skill", entry["candidate_hash"])
 
+    def test_fast_eligibility_rejects_mutated_candidate_snapshot(self):
+        entry = self.prepare_fast_update()
+        snapshot = self.registry.parent / entry["candidate_snapshot"]
+        snapshot.write_text("tampered\n", encoding="utf-8")
+
+        result = state.fast_eligibility(self.registry, "demo-skill")
+
+        self.assertFalse(result["eligible"])
+        self.assertEqual("candidate_snapshot_hash_mismatch", result["reason"])
+
     def test_inventory_reports_all_types_and_required_fields(self):
         codex_home = self.root / ".codex"
         personal = codex_home / "skills" / "demo-skill" / "SKILL.md"
@@ -762,6 +774,50 @@ class SkillUpdateStateTests(unittest.TestCase):
         self.assertIsNotNone(by_path[str(registered.resolve())]["github_url"])
         self.assertIsNone(by_path[str(duplicate.resolve())]["github_url"])
 
+    def test_inventory_uses_accepted_base_commit_for_current_version(self):
+        codex_home = self.root / ".codex"
+        self.local = codex_home / "skills" / "demo-skill" / "SKILL.md"
+        self.local.parent.mkdir(parents=True)
+        self.local.write_text("unversioned v1\n", encoding="utf-8")
+        self.candidate.write_bytes(self.local.read_bytes())
+        state.stage_candidate(
+            self.registry,
+            "demo-skill",
+            self.local,
+            "https://github.com/example/demo/blob/main/SKILL.md",
+            "main",
+            self.candidate,
+            "a" * 40,
+        )
+        self.candidate.write_text("unversioned v2\n", encoding="utf-8")
+        state.stage_candidate(
+            self.registry,
+            "demo-skill",
+            self.local,
+            "https://github.com/example/demo/blob/main/SKILL.md",
+            "main",
+            self.candidate,
+            "b" * 40,
+        )
+
+        row = state.build_inventory(self.registry, codex_home)[0]
+
+        self.assertEqual("a" * 12, row["current_version"])
+        self.assertEqual("b" * 12, row["latest_version"])
+
+    def test_inventory_detects_local_change_after_no_update_check(self):
+        codex_home = self.root / ".codex"
+        self.local = codex_home / "skills" / "demo-skill" / "SKILL.md"
+        self.local.parent.mkdir(parents=True)
+        self.local.write_text("same\n", encoding="utf-8")
+        self.candidate.write_bytes(self.local.read_bytes())
+        self.stage()
+        self.local.write_text("changed later\n", encoding="utf-8")
+
+        row = state.build_inventory(self.registry, codex_home)[0]
+
+        self.assertEqual("review_required", row["update_eligibility"])
+
     def test_infer_github_blob_url_uses_verified_https_remote(self):
         skill = self.root / "repo" / "skills" / "demo" / "SKILL.md"
         skill.parent.mkdir(parents=True)
@@ -779,6 +835,18 @@ class SkillUpdateStateTests(unittest.TestCase):
             "https://github.com/example/repository/blob/main/skills/demo/SKILL.md",
             result,
         )
+
+    def test_extract_version_cli_prints_file_version(self):
+        self.local.write_text(
+            "---\nname: demo-skill\nversion: 4.2\n---\n", encoding="utf-8"
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            exit_code = state.main(["extract-version", str(self.local)])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("4.2", output.getvalue().strip())
 
     def test_build_pinned_raw_url_rejects_untrusted_hosts(self):
         with self.assertRaisesRegex(ValueError, "github.com"):
