@@ -66,6 +66,31 @@ class SkillPackageTests(unittest.TestCase):
             self.assertIn("unregistered Skill", document)
             self.assertIn("`无`", document)
 
+    def test_dashboard_fast_update_contract_is_documented(self):
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        protocol = (ROOT / "references" / "protocol.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("`/skill-update`", skill)
+        self.assertIn("/skill-update inventory", skill)
+        self.assertIn("/skill-update fast", skill)
+        for document in (skill, protocol, readme):
+            for column in (
+                "GitHub address",
+                "Current version",
+                "Latest version",
+                "Update eligibility",
+            ):
+                self.assertIn(column, document)
+            self.assertIn("Review required", document)
+            self.assertIn("Managed by Codex", document)
+        self.assertIn("at most four", protocol)
+        self.assertIn("GitHub Contents API", protocol)
+        self.assertIn("raw.githubusercontent.com", protocol)
+        self.assertIn("shallow Git", protocol)
+        self.assertIn("fast-eligibility", protocol)
+        self.assertIn("fast-apply", protocol)
+
 
 if __name__ == "__main__":
     unittest.main()

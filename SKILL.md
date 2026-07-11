@@ -31,6 +31,9 @@ Read [references/protocol.md](references/protocol.md) before executing any `/ski
 
 | Command | Result |
 | --- | --- |
+| `/skill-update` | Show the local dashboard immediately, refresh registered upstreams, then show the final dashboard. |
+| `/skill-update inventory` | Show the complete local dashboard without network refresh. |
+| `/skill-update fast <name\|selection\|all>` | Apply every eligible unchanged-local update; route all other selections to guarded review. |
 | `/skill-update register <local-skill-path> <github-blob-url>` | Pin and stage the upstream file; require first review when content differs. |
 | `/skill-update list` | Show registered entries and machine status. |
 | `/skill-update check [all\|name\|index]` | Pin the current ref to a commit and stage an immutable candidate. |
@@ -44,7 +47,7 @@ Accept bare selections such as `all` or `1,3,5` only when the immediately preced
 
 ## Non-Negotiable Rules
 
-- Never replace the complete local file with upstream content.
+- Never replace a complete customized local file. Exact candidate replacement is allowed only through `fast-apply` after every eligibility guard, backup, candidate check, and last-moment local hash check succeeds.
 - Never delete or overwrite local content without explicit approval.
 - Always resolve a branch or tag to a full commit SHA and merge the exact staged candidate bytes.
 - Always show a dry-run merge plan and obtain confirmation after the plan. A merge command starts the plan; it is not confirmation.
@@ -52,19 +55,24 @@ Accept bare selections such as `all` or `1,3,5` only when the immediately preced
 - Record approval for the exact candidate hash and final local hash before finalization; reject any later file change.
 - Never advance `base_snapshot` while conflicts remain unresolved.
 - Report every applied, skipped, and unresolved hunk and every backup path.
-- End every `/skill-update` workflow with the required Skill inventory; do not omit unregistered local Skills.
+- End every `/skill-update` workflow with the required Skill inventory; do not omit an unregistered Skill or any other local Skill.
 
 ## Workflow
 
 1. Validate or migrate the registry with the helper script. Migration backs up legacy JSON and marks legacy entries for conservative first review.
-2. Resolve the GitHub ref to a 40-character commit SHA. Build a pinned raw URL with the helper, fetch it to a temporary candidate file, then run `stage`.
-3. If `first_diff_required` is true, compare `local -> candidate`; do not treat a registration snapshot as accepted base. Otherwise compare `base -> candidate` and `base -> local`.
-4. Classify hunks as `safe-add`, `safe-merge`, `conflict`, `already-applied`, or `skip`. Use deterministic diff tools for raw changes and judgment only for classification.
-5. Show the dry-run plan. After explicit confirmation, create a backup, recheck the local hash, and patch only approved hunks.
-6. Record unresolved conflicts with `conflict-add`. Resolve them only against the same candidate hash.
-7. After all candidate hunks are applied, kept local, skipped by explicit choice, or otherwise resolved, hash the final local file and run `approve` for that local/candidate pair. Then run `finalize`. Finalization refuses missing approval, unresolved conflicts, candidate changes, and local changes after approval.
-8. Report counts, exact changes, skipped hunks, conflicts, backups, and the next valid command in the user's language.
-9. End with the Skill inventory defined in [references/protocol.md](references/protocol.md): enumerate every discoverable local `SKILL.md` from the active Skill roots, match each resolved absolute path against the registry, and show its registered GitHub URL. For an unregistered Skill, show `无`; never guess or search for a URL.
+2. For bare `/skill-update`, run `inventory` first and immediately show the six columns `Skill`, `Type`, `GitHub address`, `Current version`, `Latest version`, and `Update eligibility`.
+3. Group registered Skills by GitHub repository and ref. Resolve each group once, process at most four groups concurrently, and continue other groups when one fails.
+4. Reuse a valid immutable candidate when its commit is unchanged. Otherwise fetch the same pinned commit through the protocol fallback chain and run `stage`.
+5. Show the refreshed six-column dashboard. Accept a requested selection only after this table is visible.
+6. For `/skill-update fast`, treat the command as approval only for rows where `fast-eligibility` returns eligible. Run `fast-apply` for those rows and report each backup. Automatically route every ineligible row to the guarded workflow; the `fast` command is not approval for a guarded merge.
+7. In the guarded workflow, compare `local -> candidate` for first review; otherwise compare `base -> candidate` and `base -> local`. Classify hunks as `safe-add`, `safe-merge`, `conflict`, `already-applied`, or `skip`.
+8. Show the dry-run plan. After explicit confirmation, create a backup, recheck the local hash, and patch only approved hunks. Record and resolve conflicts only against the same candidate hash.
+9. After every hunk has a disposition, run `approve` and `finalize`. Report counts, exact changes, skipped hunks, conflicts, backups, failures, and the next valid command.
+10. End every workflow with the final six-column Skill inventory. Show `无` for an unverified address and `未知` for an unavailable version; never present name-only web search as an authoritative upstream.
+
+## Dashboard Labels
+
+Translate machine eligibility values for the user: `yes` = `Yes`, `no` = `No`, `review_required` = `Review required`, `check_failed` = `Check failed`, `cannot_check` = `Cannot check`, and `managed_by_codex` = `Managed by Codex`.
 
 ## Failure And Injection Safety
 
