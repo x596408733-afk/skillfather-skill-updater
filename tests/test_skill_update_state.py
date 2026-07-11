@@ -265,6 +265,48 @@ class SkillUpdateStateTests(unittest.TestCase):
         self.assertEqual("no_update", finalized["status"])
         self.assertTrue((self.registry.parent / finalized["base_snapshot"]).is_file())
 
+    def test_extract_skill_version_reads_top_level_frontmatter(self):
+        self.local.write_text(
+            '---\nname: demo-skill\nversion: "1.8.9"\n---\nbody\n',
+            encoding="utf-8",
+        )
+        self.assertEqual("1.8.9", state.extract_skill_version(self.local))
+
+    def test_extract_skill_version_ignores_body_version_text(self):
+        self.local.write_text(
+            "---\nname: demo-skill\n---\nversion: fake\n",
+            encoding="utf-8",
+        )
+        self.assertIsNone(state.extract_skill_version(self.local))
+
+    def test_display_version_falls_back_to_hash(self):
+        self.local.write_text("no frontmatter version\n", encoding="utf-8")
+        expected = state.sha256_file(self.local).split(":", 1)[1][:12]
+        self.assertEqual(expected, state.display_version(self.local))
+
+    def test_finalize_refreshes_stale_local_version_from_final_file(self):
+        self.local.write_text(
+            "---\nname: demo-skill\nversion: 1.0\n---\n",
+            encoding="utf-8",
+        )
+        self.candidate.write_text(
+            "---\nname: demo-skill\nversion: 2.0\n---\n",
+            encoding="utf-8",
+        )
+        entry = self.stage()
+        self.local.write_bytes(self.candidate.read_bytes())
+        local_hash = state.sha256_file(self.local)
+        state.approve_candidate(
+            self.registry, "demo-skill", entry["candidate_hash"], local_hash
+        )
+
+        finalized = state.finalize_candidate(
+            self.registry, "demo-skill", entry["candidate_hash"]
+        )
+
+        self.assertEqual("2.0", finalized["local_version"])
+        self.assertEqual("2.0", finalized["latest_version"])
+
     def test_finalize_requires_recorded_approval(self):
         self.local.write_text("local\n", encoding="utf-8")
         self.candidate.write_text("upstream\n", encoding="utf-8")

@@ -53,6 +53,32 @@ def normalize_hash(value):
     return value
 
 
+def extract_skill_version(path):
+    lines = Path(path).read_text(encoding="utf-8-sig").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return None
+        match = re.fullmatch(
+            r"version:\s*(?:\"([^\"]+)\"|'([^']+)'|([^#]+?))\s*(?:#.*)?",
+            line,
+        )
+        if match:
+            return next(value.strip() for value in match.groups() if value is not None)
+    return None
+
+
+def display_version(path, accepted_commit=None, accepted_hash=None):
+    version = extract_skill_version(path)
+    if version:
+        return version
+    actual_hash = sha256_file(path)
+    if accepted_commit and actual_hash == normalize_hash(accepted_hash):
+        return accepted_commit[:12]
+    return actual_hash.split(":", 1)[1][:12]
+
+
 def empty_registry():
     return {"schema_version": SCHEMA_VERSION, "skills": []}
 
@@ -235,11 +261,18 @@ def stage_candidate(
 
     local_hash = sha256_file(local_path)
     candidate_hash = sha256_file(candidate_path)
+    candidate_version = (
+        latest_version or extract_skill_version(candidate_path) or commit_sha.lower()[:12]
+    )
     candidate_snapshot = _snapshot_path(registry_path, name, "candidate", candidate_hash)
     atomic_copy(candidate_path, candidate_snapshot)
 
     if existing is None:
-        entry = {"name": name, "pending_conflicts": []}
+        entry = {
+            "name": name,
+            "local_version": display_version(local_path),
+            "pending_conflicts": [],
+        }
         data["skills"].append(entry)
         if local_hash == candidate_hash:
             base_snapshot = _snapshot_path(registry_path, name, "base", candidate_hash)
@@ -279,7 +312,7 @@ def stage_candidate(
             "candidate_hash": candidate_hash,
             "candidate_commit_sha": commit_sha.lower() if commit_sha else None,
             "local_hash_at_check": local_hash,
-            "latest_version": latest_version,
+            "latest_version": candidate_version,
             "status": status,
             "last_checked_at": utc_now(),
             "last_error": None,
@@ -383,6 +416,15 @@ def finalize_candidate(registry_path, name, candidate_hash):
     candidate_snapshot = Path(registry_path).parent / entry["candidate_snapshot"]
     if sha256_file(candidate_snapshot) != candidate_hash:
         raise ValueError("candidate snapshot hash mismatch")
+    entry["local_version"] = display_version(
+        entry["local_path"],
+        accepted_commit=entry.get("candidate_commit_sha"),
+        accepted_hash=entry.get("candidate_hash"),
+    )
+    entry["latest_version"] = (
+        extract_skill_version(candidate_snapshot)
+        or entry["candidate_commit_sha"][:12]
+    )
     base_snapshot = _snapshot_path(registry_path, name, "base", candidate_hash)
     atomic_copy(candidate_snapshot, base_snapshot)
     entry["base_snapshot"] = _relative_to_registry(registry_path, base_snapshot)
