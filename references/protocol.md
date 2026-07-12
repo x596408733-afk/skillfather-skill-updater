@@ -92,7 +92,7 @@ For batch checks, group entries by GitHub repository and ref, resolve each group
 
 ## Dashboard And Inventory
 
-Bare `/skill-update` first renders local inventory without network access, refreshes registered upstreams, then renders the final inventory. `/skill-update inventory` renders only the local view.
+Bare `/skill-update` and natural-language inventory requests first render local inventory without network access, refresh registered upstreams, then render the final inventory. `/skill-update inventory` renders only the local view. Natural-language inventory requests include `我现在有什么 skills`, `我的 Codex 有什么 skills`, `列出我的所有 skill`, `what Skills do I have`, `what Skills does my Codex have`, and equivalent requests to list or show all installed Skills.
 
 The presentation table always contains these columns in this order:
 

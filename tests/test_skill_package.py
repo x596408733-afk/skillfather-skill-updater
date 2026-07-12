@@ -56,6 +56,17 @@ class SkillPackageTests(unittest.TestCase):
         self.assertGreaterEqual(len(short), 25)
         self.assertLessEqual(len(short), 64)
 
+    def test_natural_language_inventory_triggers_are_documented(self):
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        protocol = (ROOT / "references" / "protocol.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        for document in (skill, protocol, readme):
+            self.assertIn("我现在有什么 skills", document)
+            self.assertIn("我的 Codex 有什么 skills", document)
+            self.assertIn("what Skills do I have", document)
+        self.assertIn("same dashboard workflow", skill)
+
     def test_completion_inventory_contract_is_documented(self):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         protocol = (ROOT / "references" / "protocol.md").read_text(encoding="utf-8")

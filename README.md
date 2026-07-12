@@ -57,11 +57,13 @@ Use $skillfather-skill-updater to register my local Skills.
 /skill-update restore <name> <backup-path>
 ```
 
+You can also ask naturally, for example: `我现在有什么 skills`、`我的 Codex 有什么 skills`、`列出我的所有 skill`、`what Skills do I have`, or `list all my Skills`. These requests run the same complete dashboard workflow as bare `/skill-update`.
+
 The Skill manages one `SKILL.md` per registry entry. It does not currently synchronize a Skill's supporting directories.
 
 ## Skill inventory
 
-Bare `/skill-update` shows a local dashboard immediately, refreshes registered upstreams in repository groups, then shows the final dashboard. Every completed workflow uses:
+Bare `/skill-update` and natural-language requests for the complete Skill list show a local dashboard immediately, refresh registered upstreams in repository groups, then show the final dashboard. Every completed workflow uses:
 
 | Skill | Type | GitHub address | Current version | Latest version | Update eligibility |
 | --- | --- | --- | --- | --- | --- |

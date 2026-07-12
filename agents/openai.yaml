@@ -1,4 +1,4 @@
 interface:
   display_name: "SkillFather | Skill Updater"
-  short_description: "Safely update customized Skills from GitHub"
-  default_prompt: "Use $skillfather-skill-updater to show my complete Skill dashboard, refresh pinned GitHub upstreams, fast-update unchanged local Skills, and guard customized files."
+  short_description: "List and safely update local Skills from GitHub"
+  default_prompt: "Use $skillfather-skill-updater to list all my Skills in the six-column dashboard, refresh verified GitHub upstreams, fast-update unchanged local Skills, and guard customized files."

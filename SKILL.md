@@ -1,6 +1,6 @@
 ---
 name: skillfather-skill-updater
-description: Use when managing local Codex or Claude Skills that track a GitHub SKILL.md, or when using /skill-update to register, list, check, diff, merge, resolve, back up, or restore those files.
+description: Use when managing local Codex or Claude Skills that track a GitHub SKILL.md; when the user asks what Skills they have, what Skills Codex has, or asks to list/show all Skills; or when using /skill-update to register, list, check, diff, merge, resolve, back up, or restore those files.
 ---
 
 # SkillFather | Skill Updater
@@ -45,6 +45,12 @@ Read [references/protocol.md](references/protocol.md) before executing any `/ski
 
 Accept bare selections such as `all` or `1,3,5` only when the immediately preceding assistant message requested that selection inside an active `/skill-update` workflow.
 
+## Natural-Language Inventory Trigger
+
+Treat a request to list the user's installed Skills as bare `/skill-update`. This includes Chinese requests such as `我现在有什么 skills`、`我的 Codex 有什么 skills`、`列出我的所有 skill`、`展示我有哪些技能`, and equivalent English requests such as `what Skills do I have`, `what Skills does my Codex have`, or `list all my Skills`.
+
+Do not require the user to know or type `/skill-update`. Run the same dashboard workflow: render the local inventory, refresh verified registered GitHub upstreams, then render the final six-column dashboard. Do not treat an ordinary request to update, register, compare, or restore one named Skill as an inventory request unless the user also asks for the complete list.
+
 ## Non-Negotiable Rules
 
 - Never replace a complete customized local file. Exact candidate replacement is allowed only through `fast-apply` after every eligibility guard, backup, candidate check, and last-moment local hash check succeeds.
@@ -60,7 +66,7 @@ Accept bare selections such as `all` or `1,3,5` only when the immediately preced
 ## Workflow
 
 1. Validate or migrate the registry with the helper script. Migration backs up legacy JSON and marks legacy entries for conservative first review.
-2. For bare `/skill-update`, run `inventory` first and immediately show the six columns `Skill`, `Type`, `GitHub address`, `Current version`, `Latest version`, and `Update eligibility`.
+2. For bare `/skill-update` or a natural-language inventory trigger, run `inventory` first and immediately show the six columns `Skill`, `Type`, `GitHub address`, `Current version`, `Latest version`, and `Update eligibility`.
 3. Group registered Skills by GitHub repository and ref. Resolve each group once, process at most four groups concurrently, and continue other groups when one fails.
 4. Reuse a valid immutable candidate when its commit is unchanged. Otherwise fetch the same pinned commit through the protocol fallback chain and run `stage`.
 5. Show the refreshed six-column dashboard. Accept a requested selection only after this table is visible.
