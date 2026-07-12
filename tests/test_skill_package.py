@@ -75,7 +75,7 @@ class SkillPackageTests(unittest.TestCase):
         for document in (skill, protocol, readme):
             self.assertIn("Skill inventory", document)
             self.assertIn("unregistered Skill", document)
-            self.assertIn("`无`", document)
+            self.assertIn("GitHub address", document)
 
     def test_dashboard_fast_update_contract_is_documented(self):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
